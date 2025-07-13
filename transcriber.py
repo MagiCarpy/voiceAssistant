@@ -18,7 +18,8 @@ CHUNK_SIZE = int(RATE*CHUNK_DURATION / 1000)
 vad = webrtcvad.Vad()
 vad.set_mode(2)  # 0: Aggressive filtering, 3: Less aggressive
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+# device = "gpu" if torch.cuda.is_available() else "cpu"
+device = "mps" if torch.backends.mps.is_available() else "cpu"
 
 # Wake word detector
 classifier = pipeline(
@@ -91,8 +92,7 @@ def transcribe():
 
 
 # helper
-def is_speech(frame, sample_rate):
-    
+def is_speech(frame, sample_rate): 
     return vad.is_speech(frame, sample_rate)
 
 def record_audio():
