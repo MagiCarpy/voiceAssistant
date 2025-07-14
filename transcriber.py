@@ -40,51 +40,63 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
             f"Wake word {wake_word} not in set of valid class labels, pick a wake word in the set {classifier.model.config.label2id.keys()}."
         )
     
+
     sampling_rate = classifier.feature_extractor.sampling_rate
 
-    mic = ffmpeg_microphone_live(
-        sampling_rate=sampling_rate,
-        chunk_length_s=chunk_length,
-        stream_chunk_s=stream_chunk,
+    p = pyaudio.PyAudio()
+
+    stream = p.open(
+        format=FORMAT,
+        channels=CHANNELS,
+        rate=RATE,
+        input=True,
+        frames_per_buffer=CHUNK_SIZE
     )
 
     print("Listening for wake word...")
-    for prediction in classifier(mic):
-        prediction = prediction[0]
-        if debug:
-            print(prediction)
-        if prediction["label"] == wake_word:
-            if prediction["score"] > prob_threshold:
-                return True
+    frames = []
+    while True:
+        if not stream:
+            stream = p.open(
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=RATE,
+                input=True,
+                frames_per_buffer=CHUNK_SIZE
+            )
             
-# def transcribe(chunk_length_s=10, stream_chunk_s=2):
-#     sampling_rate = transcriber.feature_extractor.sampling_rate
+        seconds = 0.10
+        for _ in range(0, int(RATE/CHUNK_SIZE*seconds)):
+            data = stream.read(CHUNK_SIZE)
+            int16_array = np.frombuffer(data, dtype=np.int16)
+            frames.append(int16_array)
 
-#     mic = ffmpeg_microphone_live(
-#         sampling_rate=sampling_rate,
-#         chunk_length_s=chunk_length_s,
-#         stream_chunk_s=stream_chunk_s,
-#     )
+        if len(frames) > int(RATE/CHUNK_SIZE*seconds) * 20:
+            frames = frames[5*int(RATE/CHUNK_SIZE*seconds):]
 
-#     user_input = []
-#     current_segment = ""
-#     print("Start speaking...")
-#     while not "run program" in current_segment.lower():
-#         for item in transcriber(mic, generate_kwargs={"max_new_tokens": 128}):
-#             sys.stdout.write("\033[K")
-#             print(item["text"], end="\r")
-#             if not item["partial"][0]:
-#                 break
-#         current_segment = item["text"]
-#     user_input.append(item["text"])
+    # mic = ffmpeg_microphone_live(
+    #          sampling_rate=sampling_rate,
+    #          chunk_length_s=chunk_length,
+    #          stream_chunk_s=stream_chunk,
+    #      )
 
-#     final_query = ""
-#     for string in user_input:
-#         if "run program" in final_query[-2:].lower():
-#             break
-#         final_query = final_query.join(string)
-#         print(f"seg: {final_query}")
-#     return final_query
+    
+        try:
+            audio = np.concatenate(frames).astype(np.float32) / 32768.0
+            prediction = classifier(audio)
+            prediction = prediction[0]
+            if debug:
+                print(prediction)
+            if prediction["label"] == wake_word:
+                if prediction["score"] > prob_threshold:
+                    stream.stop_stream()
+                    stream.close()
+                    return True
+        except Exception as e:
+            print(e)
+            stream.stop_stream()
+            stream.close()
+                
 
 def transcribe():
     frames = record_audio()
@@ -96,6 +108,11 @@ def is_speech(frame, sample_rate):
     return vad.is_speech(frame, sample_rate)
 
 def record_audio():
+
+    # FIXME: make audio record when sound spikes
+    # Makes the user not have to wait for model 
+    # to start listening.
+
     # Open stream
     audio = pyaudio.PyAudio()
     stream = audio.open(format=FORMAT,
@@ -145,5 +162,5 @@ def record_audio():
 
 
 if __name__ == "__main__":
-    #detect_wake(debug=True)
-    print(f"final: {transcribe()}")
+    detect_wake(debug=True)
+    #print(f"final: {transcribe()}")

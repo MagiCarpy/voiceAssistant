@@ -2,27 +2,12 @@ from ollama import chat
 from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 from datasets import load_dataset
 import sounddevice as sd
+import time
 import torch
 import re
-from queue import Queue
-import multiprocessing
+from multiprocessing import Queue, Event, Process
 
-#---Voice Assistant---#
-model = "voiceAssistant" 
-
-def get_model_response(prompt, model_type=model):
-    stream = chat(
-        model=model_type,
-        messages=[{"role": "user", "content": prompt}],
-        stream=True,
-    )
-
-    return stream
-
-def display_response(stream):
-    for chunk in stream:    
-        print(chunk["message"]["content"], end="", flush=True)
-    print("\n")
+model = "voiceAssistant"
 
 def display_and_speak(prompt, model_type=model):
     stream = chat(
@@ -32,7 +17,14 @@ def display_and_speak(prompt, model_type=model):
     )
 
     active_audios = Queue()
-    talking_signal = False
+    stop_event = Event()
+    speaking = False
+
+    playback_process = Process(target=dequeue_and_play, args=(active_audios, stop_event))
+    playback_process.start()
+
+    processes = []
+    sentence_num = 1
     full_text = ""
     buffer = ""
     for chunk in stream:
@@ -43,15 +35,17 @@ def display_and_speak(prompt, model_type=model):
                 buffer += chunk_text
                 print(chunk_text, end="")
                 if bool(re.search(r'[.!?]', chunk_text)):
-                    if active_audios.qsize() >= 2:
-                        dequeue_and_play(active_audios, talking_signal)
-                    audio_process = multiprocessing.Process(synthesize_and_queue(buffer, speaker_embeddings, active_audios))
+                    audio_process = Process(target=synthesize_and_queue, args=(buffer, speaker_embeddings, active_audios, sentence_num))
                     audio_process.start()
-                    print("started")
-
+                    sentence_num += 1
+                    processes.append(audio_process)
                     buffer = ""
-    while active_audios.qsize() != 0:
-        dequeue_and_play(active_audios, talking_signal)
+
+    for process in reversed(processes):
+         process.join()
+
+    stop_event.set()
+    playback_process.join()
 
 
 #---Text to Speech---#
@@ -80,24 +74,64 @@ def synthesize(text, speaker_embeddings = speaker_embeddings):
     speech = model.generate_speech(
         inputs["input_ids"].to(device), speaker_embeddings.to(device), vocoder=vocoder
     )
-    return speech.cpu()
+    return speech.cpu().numpy()
 
 # attempt to synchronize thread execution
-def synthesize_and_queue(text, speaker_embeddings, queue):
-    audio = synthesize(text, speaker_embeddings).numpy()
-    queue.put(audio)
+def synthesize_and_queue(text, speaker_embeddings, queue, index):
+    audio = synthesize(text, speaker_embeddings)
+    queue.put((index, audio))
 
-def dequeue_and_play(queue, speaking_signal):
-    speaking_signal = True
-    audio = queue.get()
-    sd.play(0.75 * audio, 16000)
-    sd.wait()
-    speaking_signal = False
+# FIXME: Use BST tree or some other data structure to make
+# fetching the audio in the correct order more efficient
+def dequeue_and_play(queue, stop_event):
+    ordered_audios = []
+    current_audio = 1
+    while not stop_event.is_set() or not queue.empty() or not len(ordered_audios) == 0:
+        print(current_audio)
+        if not queue.empty() or not len(ordered_audios) == 0:
+            if not queue.empty():
+                index, audio = queue.get()
+                if (index == current_audio):
+                    sd.play(0.75 * audio, 16000)
+                    sd.wait()
+                    current_audio += 1
+                else:
+                    ordered_audios.sort(key=lambda x: x[0])
+                    ordered_audios.append((index, audio))
+                    if (ordered_audios[0][0] == current_audio):
+                        _, audio = ordered_audios.pop(0)
+                        sd.play(0.75 * audio, 16000)
+                        sd.wait()
+                        current_audio += 1
+            else:
+                ordered_audios.sort(key=lambda x: x[0])
+                if (ordered_audios[0][0] == current_audio):
+                    _, audio = ordered_audios.pop(0)
+                    sd.play(0.75 * audio, 16000)
+                    sd.wait()
+                    current_audio += 1
+        else:
+            time.sleep(0.1)
 
 def play_audio(audio):
     sd.play(0.75*audio, 16000)
     sd.wait()
 
+
+#---Voice Assistant---#
+def get_model_response(prompt, model_type=model):
+    stream = chat(
+        model=model_type,
+        messages=[{"role": "user", "content": prompt}],
+        stream=True,
+    )
+
+    return stream
+
+def display_response(stream):
+    for chunk in stream:    
+        print(chunk["message"]["content"], end="", flush=True)
+    print("\n")
 
 if __name__ == "__main__":
     #audio = synthesize("Hello brandon this is a test. I want to see if this scottish voice is any good.")
@@ -105,5 +139,5 @@ if __name__ == "__main__":
     #sd.play(0.5*audio, samplerate=16000)
     #sd.wait()
 
-    display_and_speak("What is psilocybin and can it be made into a concentrated serum for concentrated dosage?")
+    display_and_speak("This is the test, one, two, three.")
 
