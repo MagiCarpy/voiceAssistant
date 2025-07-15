@@ -5,6 +5,7 @@ import pyaudio, webrtcvad
 import torch
 import numpy as np
 import sys
+import time
 
 # Audio Config
 FORMAT = pyaudio.paInt16
@@ -26,7 +27,7 @@ classifier = pipeline(
     "audio-classification", model="MIT/ast-finetuned-speech-commands-v2", device="cpu"
 )
 
-print(classifier.model.config.id2label[27])
+#print(classifier.model.config.id2label[27])
 
 # speech transcriber
 transcriber = pipeline(
@@ -39,7 +40,6 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
         raise ValueError(
             f"Wake word {wake_word} not in set of valid class labels, pick a wake word in the set {classifier.model.config.label2id.keys()}."
         )
-    
 
     sampling_rate = classifier.feature_extractor.sampling_rate
 
@@ -52,6 +52,7 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
         input=True,
         frames_per_buffer=CHUNK_SIZE
     )
+    time.sleep(0.1)
 
     print("Listening for wake word...")
     frames = []
@@ -64,42 +65,47 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
                 input=True,
                 frames_per_buffer=CHUNK_SIZE
             )
+            time.sleep(0.1)
             
         seconds = 0.10
         for _ in range(0, int(RATE/CHUNK_SIZE*seconds)):
-            data = stream.read(CHUNK_SIZE)
-            int16_array = np.frombuffer(data, dtype=np.int16)
-            frames.append(int16_array)
+            frame = stream.read(CHUNK_SIZE)
+            frames.append(frame)
 
         if len(frames) > int(RATE/CHUNK_SIZE*seconds) * 20:
             frames = frames[5*int(RATE/CHUNK_SIZE*seconds):]
 
-    # mic = ffmpeg_microphone_live(
-    #          sampling_rate=sampling_rate,
-    #          chunk_length_s=chunk_length,
-    #          stream_chunk_s=stream_chunk,
-    #      )
-
     
         try:
-            audio = np.concatenate(frames).astype(np.float32) / 32768.0
+            audio_bytes = b"".join(frames)
+            audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16) 
+            audio = audio_int16.astype(np.float32) / 32768.0
             prediction = classifier(audio)
             prediction = prediction[0]
             if debug:
                 print(prediction)
             if prediction["label"] == wake_word:
                 if prediction["score"] > prob_threshold:
-                    stream.stop_stream()
-                    stream.close()
-                    return True
+                    # stream.stop_stream()
+                    # stream.close()
+                    return (frames, stream)
         except Exception as e:
             print(e)
             stream.stop_stream()
             stream.close()
                 
 
-def transcribe():
-    frames = record_audio()
+def transcribe(prev_audio=None, stream=None):
+    if prev_audio:
+        if stream:
+            frames = record_audio(prev_audio=prev_audio, stream=stream)
+        else:
+            frames = record_audio(prev_audio=prev_audio)
+    else:
+        if stream:
+            frames = record_audio(stream=stream)
+        else:
+            frames = record_audio()
     return transcriber(frames, generate_kwargs={"max_new_tokens": 128})["text"]
 
 
@@ -107,21 +113,21 @@ def transcribe():
 def is_speech(frame, sample_rate): 
     return vad.is_speech(frame, sample_rate)
 
-def record_audio():
-
-    # FIXME: make audio record when sound spikes
-    # Makes the user not have to wait for model 
-    # to start listening.
-
+def record_audio(prev_audio=None, stream=None):
+    # FIXME: clean up this code module
     # Open stream
-    audio = pyaudio.PyAudio()
-    stream = audio.open(format=FORMAT,
-                        channels=CHANNELS,
-                        rate=RATE,
-                        input=True,
-                        frames_per_buffer=CHUNK_SIZE)
 
-    frames = []
+    p = pyaudio.PyAudio()
+
+    if not stream:
+
+        stream = p.open(format=FORMAT,
+                            channels=CHANNELS,
+                            rate=RATE,
+                            input=True,
+                            frames_per_buffer=CHUNK_SIZE)
+
+    frames = prev_audio if prev_audio else []
     recording = False
     counter = 0
 
@@ -153,7 +159,7 @@ def record_audio():
     # Stop and close the stream
     stream.stop_stream()
     stream.close()
-    audio.terminate()
+    p.terminate()
 
     audio_bytes = b''.join(frames)
     audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
@@ -162,5 +168,6 @@ def record_audio():
 
 
 if __name__ == "__main__":
-    detect_wake(debug=True)
+    from model import display_and_speak
+    display_and_speak(transcribe())
     #print(f"final: {transcribe()}")
