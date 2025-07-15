@@ -1,13 +1,29 @@
 from ollama import chat
+import pyaudio
+import wave
+import numpy as np
+import os
+from piper import PiperVoice, SynthesisConfig
 from transformers import SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 from datasets import load_dataset
 import sounddevice as sd
+import soundfile as sf
 import time
 import torch
 import re
 from multiprocessing import Queue, Event, Process
 
 model = "voiceAssistant"
+model_path = "/Users/carpp/github/voiceAssistant/en_GB-alan-medium.onnx"
+voice = PiperVoice.load("/Users/carpp/github/voiceAssistant/en_GB-alan-medium.onnx")
+
+syn_config = SynthesisConfig(
+    volume=0.5,  # half as loud
+    length_scale=0.5,  # twice as slow
+    noise_scale=1.0,  # more audio variation
+    noise_w_scale=1.0,  # more speaking variation
+    normalize_audio=False, # use raw audio from voice
+)
 
 def display_and_speak(prompt, model_type=model):
     stream = chat(
@@ -16,12 +32,12 @@ def display_and_speak(prompt, model_type=model):
         stream=True,
     )
 
-    active_audios = Queue()
     stop_event = Event()
+
     speaking = False
 
-    playback_process = Process(target=dequeue_and_play, args=(active_audios, stop_event))
-    playback_process.start()
+    # playback_process = Process(target=dequeue_and_play, args=(active_audios, stop_event))
+    # playback_process.start()
 
     processes = []
     sentence_num = 1
@@ -35,17 +51,19 @@ def display_and_speak(prompt, model_type=model):
                 buffer += chunk_text
                 print(chunk_text, end="")
                 if bool(re.search(r'[.!?]', chunk_text)):
-                    audio_process = Process(target=synthesize_and_queue, args=(buffer, speaker_embeddings, active_audios, sentence_num))
-                    audio_process.start()
-                    sentence_num += 1
-                    processes.append(audio_process)
+                    # audio_process = Process(target=synthesize_and_queue, args=(buffer, speaker_embeddings, active_audios, sentence_num))
+                    playback_process = Process(piper_speak(buffer))
+                    playback_process.start()
+                    # audio_process.start()
+                    # sentence_num += 1
+                    # processes.append(audio_process)
                     buffer = ""
 
-    for process in reversed(processes):
-         process.join()
+    # for process in reversed(processes):
+    #      process.join()
 
-    stop_event.set()
-    playback_process.join()
+    # stop_event.set()
+    # playback_process.join()
 
 
 #---Text to Speech---#
@@ -133,11 +151,22 @@ def display_response(stream):
         print(chunk["message"]["content"], end="", flush=True)
     print("\n")
 
-if __name__ == "__main__":
-    #audio = synthesize("Hello brandon this is a test. I want to see if this scottish voice is any good.")
-    #print("aaa")
-    #sd.play(0.5*audio, samplerate=16000)
-    #sd.wait()
+def piper_speak(text):
+    print("speak")
+    with wave.open("test.wav", "wb") as wav_file:
+        voice.synthesize_wav(text, wav_file, syn_config=syn_config)
 
-    display_and_speak("This is the test, one, two, three.")
+    data, fs = sf.read("test.wav", dtype='float32')
+
+    # Play the audio data
+    sd.play(data, fs)
+    sd.wait()
+
+    os.remove("test.wav")
+    
+if __name__ == "__main__":
+    
+
+    #piper_speak("hello test sentence 1 2 3")
+    display_and_speak("Give me 5 sentences, numbered, about penguins.")
 
