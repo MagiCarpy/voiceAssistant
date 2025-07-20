@@ -1,5 +1,4 @@
 from transformers import pipeline
-from transformers.pipelines.audio_utils import ffmpeg_microphone_live
 import sounddevice as sd
 import pyaudio, webrtcvad
 import torch
@@ -10,7 +9,7 @@ import time
 # Audio Config
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-CHUNK_DURATION = 20
+CHUNK_DURATION = 30
 RATE = 16000
 CHUNK_SIZE = int(RATE*CHUNK_DURATION / 1000)
 
@@ -19,8 +18,7 @@ CHUNK_SIZE = int(RATE*CHUNK_DURATION / 1000)
 vad = webrtcvad.Vad()
 vad.set_mode(2)  # 0: Aggressive filtering, 3: Less aggressive
 
-# device = "gpu" if torch.cuda.is_available() else "cpu"
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+device =  torch.accelerator.current_accelerator().type if torch.accelerator.is_available else "cpu"
 
 # Wake word detector
 classifier = pipeline(
@@ -56,6 +54,7 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
 
     print("Listening for wake word...")
     frames = []
+    counter = 0
     while True:
         if not stream:
             stream = p.open(
@@ -67,10 +66,10 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
             )
             time.sleep(0.1)
             
-        seconds = 0.10
+        seconds = 0.1
         for _ in range(0, int(RATE/CHUNK_SIZE*seconds)):
-            frame = stream.read(CHUNK_SIZE)
-            frames.append(frame)
+                frame = stream.read(CHUNK_SIZE)
+                frames.append(frame)
 
         if len(frames) > int(RATE/CHUNK_SIZE*seconds) * 20:
             frames = frames[5*int(RATE/CHUNK_SIZE*seconds):]
@@ -86,8 +85,6 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
                 print(prediction)
             if prediction["label"] == wake_word:
                 if prediction["score"] > prob_threshold:
-                    # stream.stop_stream()
-                    # stream.close()
                     return (frames, stream)
         except Exception as e:
             print(e)
@@ -168,6 +165,9 @@ def record_audio(prev_audio=None, stream=None):
 
 
 if __name__ == "__main__":
-    from model import display_and_speak
-    display_and_speak(transcribe())
+    #from model import display_and_speak
+    #display_and_speak(transcribe())
     #print(f"final: {transcribe()}")
+    #prev_audio, stream = detect_wake(debug=True)
+    #query = transcribe(prev_audio=prev_audio, stream=stream)
+    query = transcribe()
