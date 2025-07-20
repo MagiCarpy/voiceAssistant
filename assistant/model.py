@@ -1,22 +1,30 @@
 
 from ollama import chat
+from display import QApplication, OverlayWindow, overlay_display
 from piper import PiperVoice, SynthesisConfig
 import sounddevice as sd
 import soundfile as sf
 import numpy as np
 import pyaudio
 import wave
-import os
+import os, sys
 import time
 import torch
 import re
-from multiprocessing import Queue, Process
+from multiprocessing import Process, Queue
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device =  torch.accelerator.current_accelerator().type if torch.accelerator.is_available else "cpu"
 
-model = "voiceAssistant"
+model = "voiceAssist2"
 voice_model = os.getcwd() + "/en_GB-alan-medium.onnx"
 voice = PiperVoice.load(voice_model)
+
+def overlay_worker(text):
+    app = QApplication(sys.argv)
+    overlay = OverlayWindow()
+    overlay.updateText(text)
+    overlay.show()
+    sys.exit(app.exec_())
 
 syn_config = SynthesisConfig(
     volume=0.5,  # half as loud
@@ -26,26 +34,38 @@ syn_config = SynthesisConfig(
     normalize_audio=False, # use raw audio from voice
 )
 
-def display_and_speak(prompt, model_type=model):
-    stream = chat(
+conversation_history = []
+
+def display_and_speak(prompt, model_type=model, overlay_queue=None):
+    conversation_history.append({"role": "user", "content": prompt})
+
+    response = chat(
         model=model_type,
-        messages=[{"role": "user", "content": prompt}],
+        messages=conversation_history,
         stream=True,
     )
 
     full_text = ""
     buffer = ""
-    for chunk in stream:
+    for chunk in response:
         if "message" in chunk and "content" in chunk["message"]:
             chunk_text = chunk["message"]["content"]
             print(chunk_text, end="", flush=True)
             if chunk_text:
                 full_text += chunk_text
+                if overlay_queue:
+                    overlay_queue.put(full_text)
                 buffer += chunk_text
                 if bool(re.search(r'[.!?]', chunk_text)):
                     playback(buffer)
                     buffer = ""
 
+    conversation_history.append({"role": "assistant", "content": full_text})
+    print(conversation_history)
+
+    #time.sleep(5)
+    #p.terminate()
+    #p.join()
 
 #---Text to Speech---#
 def playback(text):
@@ -63,18 +83,19 @@ def playback(text):
 
 #---Voice Assistant Text---#
 def get_model_response(prompt, model_type=model):
-    stream = chat(
+    response = chat(
         model=model_type,
-        messages=[{"role": "user", "content": prompt}],
+        messages=conversation_history,
         stream=True,
     )
 
-    return stream
+    return response
 
 def display_response(stream):
     for chunk in stream:    
         print(chunk["message"]["content"], end="", flush=True)
     print("\n")
+
     
 if __name__ == "__main__":
     display_and_speak("Give me 3 sentences about sterile technique.")
