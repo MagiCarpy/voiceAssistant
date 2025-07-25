@@ -1,6 +1,6 @@
 
 from ollama import chat
-from display import QApplication, OverlayWindow, overlay_display
+from processors.display import QApplication, OverlayWindow, overlay_display
 from piper import PiperVoice, SynthesisConfig
 import sounddevice as sd
 import soundfile as sf
@@ -38,6 +38,7 @@ conversation_history = []
 
 def display_and_speak(prompt, model_type=model, overlay_queue=None):
     conversation_history.append({"role": "user", "content": prompt})
+    max_history = 20
 
     response = chat(
         model=model_type,
@@ -61,6 +62,8 @@ def display_and_speak(prompt, model_type=model, overlay_queue=None):
                     buffer = ""
 
     conversation_history.append({"role": "assistant", "content": full_text})
+    if len(conversation_history) > max_history:
+        conversation_history[max_history/2:]
     print(conversation_history)
 
     #time.sleep(5)

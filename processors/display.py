@@ -109,7 +109,7 @@ class OverlayWindow(QMainWindow):
         self.main_layout.addWidget(self.scroll_area)
 
         # Initial text
-        self.text = "Voice Assistant"
+        self.text = "voice assistant"
         self.updateText(self.text)
 
     def updateText(self, text):
@@ -189,19 +189,21 @@ def main():
     # Example: Change text to demonstrate dynamic sizing
     overlay.updateText("Short Text")
     # QTimer.singleShot(2000, lambda: overlay.updateText("Medium sentence size. This is another sentence."))
-    # QTimer.singleShot(4000, lambda: overlay.updateText(
-    #     "THIS IS BEGIN. Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum. Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum. Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum. Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.Lorem Ipsum is simply dummy text of the printing and typesetting industry. Lorem Ipsum has been the industry's standard dummy text ever since the 1500s, when an unknown printer took a galley of type and scrambled it to make a type specimen book. It has survived not only five centuries, but also the leap into electronic typesetting, remaining essentially unchanged. It was popularised in the 1960s with the release of Letraset sheets containing Lorem Ipsum passages, and more recently with desktop publishing software like Aldus PageMaker including versions of Lorem Ipsum.THIS IS END"))
-
+    
+    
     overlay.show()
     sys.exit(app.exec_())
 
 def overlay_display(queue=None):
     app = QApplication(sys.argv)
     overlay = OverlayWindow()
-
     def check_queue():
         if queue and not queue.empty():
             new_text = queue.get()
+            if new_text == "":
+                overlay.hide()
+            else:
+                overlay.show()
             overlay.updateText(new_text)
 
     # Check queue every 500ms
@@ -210,7 +212,6 @@ def overlay_display(queue=None):
         timer.timeout.connect(check_queue)
         timer.start(100)
 
-    overlay.show()
     sys.exit(app.exec_())
 
 

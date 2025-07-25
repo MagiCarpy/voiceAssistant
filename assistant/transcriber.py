@@ -9,7 +9,7 @@ import time
 # Audio Config
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-CHUNK_DURATION = 30
+CHUNK_DURATION = 20
 RATE = 16000
 CHUNK_SIZE = int(RATE*CHUNK_DURATION / 1000)
 
@@ -50,30 +50,20 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
         input=True,
         frames_per_buffer=CHUNK_SIZE
     )
-    time.sleep(0.1)
 
     print("Listening for wake word...")
     frames = []
     counter = 0
     while True:
-        if not stream:
-            stream = p.open(
-                format=FORMAT,
-                channels=CHANNELS,
-                rate=RATE,
-                input=True,
-                frames_per_buffer=CHUNK_SIZE
-            )
-            time.sleep(0.1)
-            
         seconds = 0.1
-        for _ in range(0, int(RATE/CHUNK_SIZE*seconds)):
-                frame = stream.read(CHUNK_SIZE)
-                frames.append(frame)
+        for _ in range(int(RATE / CHUNK_SIZE * seconds)):
+            frame = stream.read(CHUNK_SIZE, exception_on_overflow=False)
+            frames.append(frame)
 
-        if len(frames) > int(RATE/CHUNK_SIZE*seconds) * 20:
-            frames = frames[5*int(RATE/CHUNK_SIZE*seconds):]
-
+        # Trim frames to prevent excessive growth (e.g., keep last 2 seconds)
+        max_frames = int(RATE / CHUNK_SIZE * 2)  # Store 2 seconds of audio
+        if len(frames) > max_frames:
+            frames = frames[-max_frames:]
     
         try:
             audio_bytes = b"".join(frames)
@@ -83,9 +73,14 @@ def detect_wake(wake_word="marvin", prob_threshold=0.70, chunk_length=2.0, strea
             prediction = prediction[0]
             if debug:
                 print(prediction)
-            if prediction["label"] == wake_word:
-                if prediction["score"] > prob_threshold:
-                    return (frames, stream)
+            if prediction["label"] == wake_word and prediction["score"] > prob_threshold:
+                return (frames, stream)
+        except IOError as e:
+                if e.errno == pyaudio.paInputOverflowed:
+                    print("Warning: Input buffer overflowed. Skipping frame.")
+                    continue  # Skip the current frame and continue reading
+                else:
+                    raise
         except Exception as e:
             print(e)
             stream.stop_stream()
@@ -125,7 +120,6 @@ def record_audio(prev_audio=None, stream=None):
                             frames_per_buffer=CHUNK_SIZE)
 
     frames = prev_audio if prev_audio else []
-    recording = False
     counter = 0
 
     print("Listening for speech...")
@@ -143,13 +137,10 @@ def record_audio(prev_audio=None, stream=None):
             if not ambient_noise:
                 counter = 0
 
-            if not recording:
-                print("Recording started.")
-                recording = True
             frames.append(frame)
         else:
             counter += 1
-            if recording and counter >= 85:
+            if counter >= 85:
                 print("Silence detected, stopping recording.")
                 break
 
