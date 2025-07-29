@@ -17,7 +17,9 @@ class VoiceAssistant:
         self.assistant_model = assistant_model
         self.voice_model = voice_model
         self.conv_history = []
+        self.max_history = 20 # FIXME: add way to change this higher lower
         # FIXME: add voice tweaking parameters for synthesisConfig (ex. speed)
+        # FIXME: add auto start ollama and close when program running or not
 
         # Preload the models at initialization
         self.voice = PiperVoice.load(self.voice_model)
@@ -30,17 +32,23 @@ class VoiceAssistant:
         )
 
         print("LOADED ASSISTANT")
-        generate(model=self.assistant_model, prompt="")
+        print(generate(model=self.assistant_model, prompt="")["response"])
 
-    def display_and_speak(self, prompt, model_type=default_assistant_model, overlay_queue=None):
+    def get_model_response(self, prompt, model_type=default_assistant_model):
+        # add to history then prompt with "memory"
         self.conv_history.append({"role": "user", "content": prompt})
-        max_history = 20
 
         response = chat(
             model=model_type,
             messages=self.conv_history,
             stream=True,
         )
+
+        return response
+
+    def display_and_speak(self, prompt, response=None, model_type=default_assistant_model, overlay_queue=None):
+        if not response:
+            response = self.get_model_response(prompt, model_type=default_assistant_model)
 
         full_text = ""
         buffer = ""
@@ -57,9 +65,12 @@ class VoiceAssistant:
                         self._playback(buffer)
                         buffer = ""
 
+        # FIXME: once conversation interrupting is implemented, append to
+        # conversation history according to the amount of response generated
+        # and returned to the user until interruption.
         self.conv_history.append({"role": "assistant", "content": full_text})
-        if len(self.conv_history) > max_history:
-            self.conv_history[max_history/2:]
+        if len(self.conv_history) > self.max_history:
+            self.conv_history[self.max_history/2:]
         print(self.conv_history)
 
     def _playback(self, text):
