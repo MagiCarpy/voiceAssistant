@@ -1,6 +1,8 @@
 # add interrupters
 class wordDetectors():
-    pass
+    # format: "[[ACTIONS]]: [KEYWORD], [KEYWORD];"
+    # if "[[ACTIONS]]" exists at beginning then search for applicable keywords
+    keywords = ["[SHUTDOWN]", "[HIDE_OVERLAY]", "[ALLOW_TYPE]", "[ONLY_DISPLAY]"]
 
 #add "memory wipe"
 

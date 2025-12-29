@@ -7,11 +7,8 @@ import os
 import torch
 import re
 
-# japanese voice
-from gtts import gTTS
-import os
-
-device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available else "cpu"
+# FIXME: check if this actually does anything (maybe should move to the class?)
+device =  torch.accelerator.current_accelerator().type if torch.accelerator.is_available else "cpu"
 default_assistant_model = "voiceAssist2"
 default_voice_model = os.path.dirname(os.path.abspath(__file__)) + "/../en_GB-alan-medium.onnx" 
 
@@ -20,42 +17,51 @@ class VoiceAssistant:
         self.assistant_model = assistant_model
         self.voice_model = voice_model
         self.conv_history = []
-        self.max_history = 20
+        self.max_history = 20 # FIXME: add way to change this higher lower
+        # FIXME: add voice tweaking parameters for synthesisConfig (ex. speed)
+        # FIXME: add auto start ollama and close when program running or not
+
+        # Preload the models at initialization
         self.voice = PiperVoice.load(self.voice_model)
         self.syn_config = SynthesisConfig(
-            volume=0.5,
-            length_scale=0.5,
-            noise_scale=1.0,
-            noise_w_scale=1.0,
-            normalize_audio=False,
+            volume=0.5,  # half as loud
+            length_scale=0.5,  # twice as slow
+            noise_scale=1.0,  # more audio variation
+            noise_w_scale=1.0,  # more speaking variation
+            normalize_audio=False, # use raw audio from voice
         )
+
         print("LOADED ASSISTANT")
         print(generate(model=self.assistant_model, prompt="")["response"])
 
     def get_model_response(self, prompt, model_type=default_assistant_model):
+        # add to history then prompt with "memory"
         self.conv_history.append({"role": "user", "content": prompt})
-        response = chat(model=model_type, messages=self.conv_history, stream=True)
-        print("Got response")
+
+        response = chat(
+            model=model_type,
+            messages=self.conv_history,
+            stream=True,
+        )
+
         return response
 
-    def display_and_speak(self, prompt="", prompt_queue=None, model_type=default_assistant_model, overlay_queue=None):
-        if prompt_queue and not prompt_queue.empty():
+    def display_and_speak(self, prompt="", prompt_queue=None, model_type=default_assistant_model, overlay_queue=None, start_signal=None):
+        response = None
+        if not prompt_queue:
+            response = self.get_model_response(prompt, model_type=model_type)
+        else:
             while not prompt_queue.empty():
                 prompt = prompt_queue.get()
                 if prompt_queue.empty():
-                    print(f"Processing prompt from queue: {prompt}")
                     response = self.get_model_response(prompt, model_type=model_type)
-            
-            self._process_response(response, overlay_queue)
-        elif prompt:
-            response = self.get_model_response(prompt, model_type=model_type)
-            self._process_response(response, overlay_queue)
-        else:
-            print("No prompt or queue data to process")
-            return
-        start_signal = False
+                if start_signal:
+                    break
 
-    def _process_response(self, response, overlay_queue):
+        if response is None:
+            print("ERROR IN DISPLAY_AND_SPEAK")
+            return
+
         full_text = ""
         buffer = ""
         for chunk in response:
@@ -67,32 +73,30 @@ class VoiceAssistant:
                     if overlay_queue:
                         overlay_queue.put(full_text)
                     buffer += chunk_text
-                    if bool(re.search(r'[.!?:]', chunk_text)):
-                        #ADD CONTROLLER PROCESSING [KEYWORD]
+                    if bool(re.search(r'[.!?]', chunk_text)):
                         self._playback(buffer)
                         buffer = ""
+
+        # FIXME: once conversation interrupting is implemented, append to
+        # conversation history according to the amount of response generated
+        # and returned to the user until interruption.
         self.conv_history.append({"role": "assistant", "content": full_text})
         if len(self.conv_history) > self.max_history:
-            self.conv_history = self.conv_history[int(self.max_history/2):]
+            self.conv_history[self.max_history/2:]
         print(self.conv_history)
 
     def _playback(self, text):
         with wave.open("test.wav", "wb") as wav_file:
             self.voice.synthesize_wav(text, wav_file, syn_config=self.syn_config)
+
         data, fs = sf.read("test.wav", dtype='float32')
+
+        # Play the audio data
         sd.play(data, fs)
         sd.wait()
+
         os.remove("test.wav")
 
-    # def _playback(self,text):
-    #     tts = gTTS(text=text, lang='ja', tld='us', slow=False)
-
-    #     # Save to file
-    #     tts.save("anime_voice.mp3")
-
-    #     # Play the file (Linux example; use 'start' for Windows or 'open' for macOS)
-    #     os.system("mpg123 anime_voice.mp3")
-    #     os.remove("anime_voice.mp3") 
     
 if __name__ == "__main__":
     assistant = VoiceAssistant()
